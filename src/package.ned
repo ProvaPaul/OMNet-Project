@@ -1,0 +1,3 @@
+package prioritydhcp;
+
+@license(LGPL);
