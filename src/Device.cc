@@ -30,26 +30,45 @@ class Device : public cSimpleModule {
         devName  = par("name").stringValue();
         priority = par("priority").intValue();
 
-        // Determine device order based on priority (highest priority first)
-        deviceOrder = 11 - priority;  // Server(10)=1, Router(9)=2, PC(3)=8, Mobile(2)=9, Printer(1)=10
-
         startEvt = new cMessage("start");
 
-        // Sequential start: each device waits for previous to complete
-        // Assume each DHCP transaction takes ~0.2s, add buffer
-        double startDelay = (deviceOrder - 1) * 0.3;  // 0.3s between each device
-        scheduleAt(simTime() + startDelay, startEvt);
+        // Check if this is a manual start time (for failover testing)
+        double jitter = par("startJitter").doubleValue();
 
-        EV << "INFO: [" << simTime() << "] "
-           << devName << " (" << devType << ", prio=" << priority
-           << ", order=" << deviceOrder << ") ready. Will start at t="
-           << (simTime() + startDelay) << "s\n";
+        if (jitter > 2.0) {
+            // This is a failover test device with manual start time
+            deviceOrder = 99;  // Special marker
+            scheduleAt(simTime() + jitter, startEvt);
+
+            EV << "INFO: [" << simTime() << "] "
+               << devName << " (" << devType << ", prio=" << priority
+               << ") ready. FAILOVER TEST DEVICE - Will start at t="
+               << (simTime() + jitter) << "s\n";
+        } else {
+            // Sequential start based on priority
+            deviceOrder = 11 - priority;
+            double startDelay = (deviceOrder - 1) * 0.3;
+            scheduleAt(simTime() + startDelay, startEvt);
+
+            EV << "INFO: [" << simTime() << "] "
+               << devName << " (" << devType << ", prio=" << priority
+               << ", order=" << deviceOrder << ") ready. Will start at t="
+               << (simTime() + startDelay) << "s\n";
+        }
     }
 
     virtual void handleMessage(cMessage *msg) override {
         if (msg->isSelfMessage()) {
-            EV << "\n>>> [" << simTime() << "] " << devName
-               << " STARTING DHCP PROCESS <<<\n";
+            if (deviceOrder == 99) {
+                EV << "\n*****************************************************\n";
+                EV << "*** FAILOVER TEST: " << devName << " STARTING ***\n";
+                EV << "*** Primary server should be DOWN ***\n";
+                EV << "*** Backup server should be ACTIVE ***\n";
+                EV << "*****************************************************\n";
+            } else {
+                EV << "\n>>> [" << simTime() << "] " << devName
+                   << " STARTING DHCP PROCESS <<<\n";
+            }
 
             auto *sol = mk("DHCPV6_SOLICIT", DHCPV6_SOLICIT, getId(), 0);
             sol->addPar("type").setStringValue(devType.c_str());
@@ -109,8 +128,16 @@ class Device : public cSimpleModule {
 
                 dhcpCompleted = true;
 
-                EV << ">>> [" << simTime() << "] " << devName
-                   << " DHCP PROCESS COMPLETED <<<\n\n";
+                if (deviceOrder == 99) {
+                    EV << "\n*****************************************************\n";
+                    EV << "*** FAILOVER SUCCESS: " << devName << " got IP from " << serverName << " ***\n";
+                    EV << "*** Assigned IP: " << ip6 << " ***\n";
+                    EV << "*** Backup DHCP server is working correctly! ***\n";
+                    EV << "*****************************************************\n\n";
+                } else {
+                    EV << ">>> [" << simTime() << "] " << devName
+                       << " DHCP PROCESS COMPLETED <<<\n\n";
+                }
                 break;
             }
             default:

@@ -53,7 +53,7 @@ simple Device
 
 network DeviceTypeDhcpNet
 {
-    @display("bgb=760,460");
+    @display("bgb=760,520");
 
     submodules:
         switch: Switch {
@@ -109,17 +109,28 @@ network DeviceTypeDhcpNet
                 priority = 1;
                 @display("p=160,400;i=device/printer");
         }
+        pc2: Device {
+            parameters:
+                type = "pc";
+                name = "PC_2_Failover";
+                priority = 4;
+                @display("p=160,460;i=device/laptop2");
+        }
 
     connections:
+        // Connect devices to switch
         server1.ppp <--> P2P <--> switch.port++;
         router1.ppp <--> P2P <--> switch.port++;
         pc1.ppp <--> P2P <--> switch.port++;
         mobile1.ppp <--> P2P <--> switch.port++;
         printer1.ppp <--> P2P <--> switch.port++;
+        pc2.ppp <--> P2P <--> switch.port++;
 
+        // Connect DHCP servers to switch
         dhcp_main.ppp <--> P2P <--> switch.port++;
         dhcp_backup.ppp <--> P2P <--> switch.port++;
 
+        // Direct sync connection between servers
         dhcp_main.syncOut --> P2P --> dhcp_backup.syncIn;
         dhcp_backup.syncOut --> P2P --> dhcp_main.syncIn;
 }

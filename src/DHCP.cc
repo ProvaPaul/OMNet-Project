@@ -290,21 +290,32 @@ class DHCP : public cSimpleModule {
         simtime_t elapsed = simTime() - lastPartnerHeartbeat;
 
         if (elapsed > failoverTimeout && partnerAlive) {
+            EV << "\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
             EV << "WARN: [" << simTime() << "] " << getFullName()
-               << " PARTNER FAILURE DETECTED! Taking over as active server...\n";
+               << " PARTNER FAILURE DETECTED!\n";
+            EV << "      Last heartbeat was " << elapsed << "s ago\n";
+            EV << "      Taking over as ACTIVE server...\n";
+            EV << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n";
             partnerAlive = false;
 
             if (!isActive) {
                 isActive = true;
+                EV << "===================================================\n";
                 EV << "INFO: [" << simTime() << "] " << getFullName()
-                   << " now ACTIVE (failover complete)\n";
+                   << " is now ACTIVE\n";
+                EV << "      Failover complete - ready to serve requests\n";
+                EV << "===================================================\n\n";
             }
         }
     }
 
     void simulateFailure() {
+        EV << "\n###################################################\n";
         EV << "WARN: [" << simTime() << "] *** " << getFullName()
            << " SIMULATING SERVER FAILURE ***\n";
+        EV << "      Server is going DOWN\n";
+        EV << "      Backup should take over within " << failoverTimeout << "s\n";
+        EV << "###################################################\n\n";
         hasFailed = true;
         isActive = false;
 
