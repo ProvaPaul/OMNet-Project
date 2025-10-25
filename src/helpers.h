@@ -5,7 +5,8 @@
 #define DHCPV6_ADVERTISE  602
 #define DHCPV6_REQUEST    603
 #define DHCPV6_REPLY      604
-#define DHCPV6_RENEW      605
+#define DHCP_SYNC         605
+#define DHCP_HEARTBEAT    606
 
 inline omnetpp::cMessage* mk(const char* name, int kind, long src, long dst) {
     auto *m = new omnetpp::cMessage(name, kind);
@@ -13,5 +14,6 @@ inline omnetpp::cMessage* mk(const char* name, int kind, long src, long dst) {
     m->addPar("dst").setLongValue(dst);
     return m;
 }
+
 inline long SRC(omnetpp::cMessage *m) { return m->par("src").longValue(); }
 inline long DST(omnetpp::cMessage *m) { return m->par("dst").longValue(); }

@@ -2,8 +2,8 @@
 #include <string>
 #include <unordered_map>
 #include <map>
-#include <queue>
-#include <vector>
+#include <sstream>
+#include <iomanip>
 #include "helpers.h"
 
 using namespace omnetpp;
@@ -11,54 +11,61 @@ using std::string;
 using std::unordered_map;
 using std::map;
 
-struct PendingRequest {
-    cMessage *msg;
-    int gateIndex;
-    int priority;
-    simtime_t arrivalTime;
+// ============================================================================
+// SWITCH
+// ============================================================================
+class Switch : public cSimpleModule {
+  protected:
+    virtual void handleMessage(cMessage *msg) override {
+        int arrivalPort = msg->getArrivalGate()->getIndex();
+        int portCount = gateSize("port");
 
-    bool operator<(const PendingRequest& other) const {
-        if (priority != other.priority)
-            return priority < other.priority;
-        return arrivalTime > other.arrivalTime;
+        for (int i = 0; i < portCount; i++) {
+            if (i != arrivalPort && gate("port$o", i)->isConnected()) {
+                send(msg->dup(), "port$o", i);
+            }
+        }
+        delete msg;
     }
 };
 
+Define_Module(Switch);
+
+// ============================================================================
+// DHCP SERVER
+// ============================================================================
 class DHCP : public cSimpleModule {
   private:
     string pcPrefix, mobilePrefix, printerPrefix, vipPrefix;
-    double fastResponseDelay;
-    double normalResponseDelay;
-    int    vipPriorityCutoff;
-    double vipLeaseTime;
-    double normalLeaseTime;
+    double fastResponseDelay = 0.01;
+    double normalResponseDelay = 0.02;
+    int    vipPriorityCutoff = 9;
 
     map<string, uint64_t> nextIdForPool;
     unordered_map<long, string> addrTable;
 
-    std::priority_queue<PendingRequest> solicitQueue;
-    std::priority_queue<PendingRequest> requestQueue;
+    bool isPrimary;
+    string partnerName;
+    double syncInterval;
+    double failoverTimeout;
+    double failureTime;
 
-    cMessage *processSolicitEvent;
-    cMessage *processRequestEvent;
+    bool isActive = false;
+    bool partnerAlive = true;
+    simtime_t lastPartnerHeartbeat;
 
-    bool processingSolicit;
-    bool processingRequest;
+    cMessage *syncTimer = nullptr;
+    cMessage *heartbeatTimer = nullptr;
+    cMessage *checkPartnerTimer = nullptr;
+    cMessage *failureEvent = nullptr;
+
+    bool hasFailed = false;
 
     // Statistics
-    long solicitCount;
-    long advertiseCount;
-    long requestCount;
-    long replyCount;
-    long renewCount;
-    simtime_t totalResponseTime;
-    long responseCount;
-
-    simsignal_t solicitSignal;
-    simsignal_t advertiseSignal;
-    simsignal_t requestSignal;
-    simsignal_t replySignal;
-    simsignal_t responseTimeSignal;
+    int solicitsReceived = 0;
+    int advertiseSent = 0;
+    int requestsReceived = 0;
+    int repliesSent = 0;
 
   protected:
     virtual void initialize() override {
@@ -69,193 +76,241 @@ class DHCP : public cSimpleModule {
         fastResponseDelay   = par("fastResponseDelay").doubleValue();
         normalResponseDelay = par("normalResponseDelay").doubleValue();
         vipPriorityCutoff   = par("vipPriorityCutoff").intValue();
-        vipLeaseTime        = par("vipLeaseTime").doubleValue();
-        normalLeaseTime     = par("normalLeaseTime").doubleValue();
+
+        isPrimary = par("isPrimary").boolValue();
+        partnerName = par("partnerName").stringValue();
+        syncInterval = par("syncInterval").doubleValue();
+        failoverTimeout = par("failoverTimeout").doubleValue();
+        failureTime = par("failureTime").doubleValue();
 
         nextIdForPool[pcPrefix]      = 1;
         nextIdForPool[mobilePrefix]  = 1;
         nextIdForPool[printerPrefix] = 1;
         nextIdForPool[vipPrefix]     = 1;
 
-        processSolicitEvent = new cMessage("processSolicit");
-        processRequestEvent = new cMessage("processRequest");
+        isActive = isPrimary;
+        lastPartnerHeartbeat = simTime();
 
-        processingSolicit = false;
-        processingRequest = false;
+        syncTimer = new cMessage("syncTimer");
+        heartbeatTimer = new cMessage("heartbeatTimer");
+        checkPartnerTimer = new cMessage("checkPartnerTimer");
 
-        // Initialize statistics
-        solicitCount = 0;
-        advertiseCount = 0;
-        requestCount = 0;
-        replyCount = 0;
-        renewCount = 0;
-        totalResponseTime = 0;
-        responseCount = 0;
+        scheduleAt(simTime() + syncInterval, syncTimer);
+        scheduleAt(simTime() + 0.25, heartbeatTimer);
+        scheduleAt(simTime() + failoverTimeout, checkPartnerTimer);
 
-        // Register signals for statistics
-        solicitSignal = registerSignal("solicitReceived");
-        advertiseSignal = registerSignal("advertiseSent");
-        requestSignal = registerSignal("requestReceived");
-        replySignal = registerSignal("replySent");
-        responseTimeSignal = registerSignal("responseTime");
+        if (failureTime > 0) {
+            failureEvent = new cMessage("failureEvent");
+            scheduleAt(simTime() + failureTime, failureEvent);
+        }
 
-        EV_INFO << "DHCPv6 server up with pools:\n"
-                << "  pc      : " << pcPrefix << "\n"
-                << "  mobile  : " << mobilePrefix << "\n"
-                << "  printer : " << printerPrefix << "\n"
-                << "  VIP     : " << vipPrefix << "\n"
-                << "  VIP Lease Time: " << vipLeaseTime << "s\n"
-                << "  Normal Lease Time: " << normalLeaseTime << "s\n";
+        EV << "INFO: " << getFullName() << " initialized as "
+           << (isPrimary ? "PRIMARY" : "BACKUP")
+           << " server (active=" << isActive << ")\n";
+        EV << "INFO:   Pools: pc=" << pcPrefix
+           << ", mobile=" << mobilePrefix
+           << ", printer=" << printerPrefix
+           << ", VIP=" << vipPrefix << "\n";
     }
 
     virtual void handleMessage(cMessage *msg) override {
-        if (msg == processSolicitEvent) {
-            processingSolicit = false;
-            processNextSolicit();
+        if (msg == syncTimer) {
+            if (!hasFailed) sendSync();
+            scheduleAt(simTime() + syncInterval, syncTimer);
+            return;
         }
-        else if (msg == processRequestEvent) {
-            processingRequest = false;
-            processNextRequest();
+
+        if (msg == heartbeatTimer) {
+            if (!hasFailed) sendHeartbeat();
+            scheduleAt(simTime() + 0.25, heartbeatTimer);
+            return;
         }
-        else {
-            int inIx = msg->getArrivalGate()->getIndex();
+
+        if (msg == checkPartnerTimer) {
+            checkPartnerStatus();
+            scheduleAt(simTime() + failoverTimeout, checkPartnerTimer);
+            return;
+        }
+
+        if (msg == failureEvent) {
+            simulateFailure();
+            return;
+        }
+
+        if (hasFailed) {
+            delete msg;
+            return;
+        }
+
+        if (msg->getKind() == DHCP_HEARTBEAT) {
+            lastPartnerHeartbeat = simTime();
+            if (!partnerAlive) {
+                partnerAlive = true;
+            }
+            delete msg;
+            return;
+        }
+
+        if (msg->getKind() == DHCP_SYNC) {
+            receiveSync(msg);
+            delete msg;
+            return;
+        }
+
+        if (msg->arrivedOn("ppp$i")) {
+            handleDHCPMessage(msg);
+        } else {
+            delete msg;
+        }
+    }
+
+    void handleDHCPMessage(cMessage *msg) {
+        long dst = DST(msg);
+        if (dst != 0 && dst != getId()) {
+            delete msg;
+            return;
+        }
+
+        if (!isActive) {
+            delete msg;
+            return;
+        }
+
+        if (msg->getKind() == DHCPV6_SOLICIT) {
+            solicitsReceived++;
+            long dev = SRC(msg);
+            string devType = (msg->hasPar("type") ? msg->par("type").stringValue() : "pc");
             int prio = (msg->hasPar("priority") ? (int)msg->par("priority").longValue() : 1);
 
-            if (msg->getKind() == DHCPV6_SOLICIT) {
-                solicitCount++;
-                emit(solicitSignal, 1L);
+            bool isVip = isVipClient(devType, prio);
+            string prefix = pickPrefix(devType, prio);
+            string offer  = makeAddress(prefix, nextIdForPool[prefix]);
 
-                PendingRequest req;
-                req.msg = msg;
-                req.gateIndex = inIx;
-                req.priority = prio;
-                req.arrivalTime = simTime();
-                solicitQueue.push(req);
+            nextIdForPool[prefix]++;
 
-                if (!processingSolicit) {
-                    processNextSolicit();
+            EV << "INFO: [" << simTime() << "] " << getFullName()
+               << " SOLICIT from devId=" << dev
+               << " type=" << devType << " prio=" << prio
+               << " -> ADVERTISE " << offer
+               << (isVip ? " (VIP)" : " (normal)") << "\n";
+
+            auto *adv = mk("DHCPV6_ADVERTISE", DHCPV6_ADVERTISE, getId(), dev);
+            adv->addPar("ip6").setStringValue(offer.c_str());
+            adv->addPar("serverName").setStringValue(getFullName());
+            adv->addPar("serverId").setLongValue(getId());
+            simtime_t d = isVip ? fastResponseDelay : normalResponseDelay;
+            sendDelayed(adv, d, "ppp$o");
+            advertiseSent++;
+        }
+        else if (msg->getKind() == DHCPV6_REQUEST) {
+            requestsReceived++;
+            long dev = SRC(msg);
+            string ip6 = msg->par("ip6").stringValue();
+            int prio = (msg->hasPar("priority") ? (int)msg->par("priority").longValue() : 1);
+
+            addrTable[dev] = ip6;
+
+            string key = poolKeyFrom(ip6);
+            bool isVip = (key.find("vip::") != string::npos || key == vipPrefix);
+
+            EV << "INFO: [" << simTime() << "] " << getFullName()
+               << " REQUEST from devId=" << dev
+               << " prio=" << prio << " for " << ip6
+               << " -> REPLY " << (isVip ? "(VIP)" : "(normal)") << "\n";
+
+            auto *rep = mk("DHCPV6_REPLY", DHCPV6_REPLY, getId(), dev);
+            rep->addPar("ip6").setStringValue(ip6.c_str());
+            rep->addPar("serverName").setStringValue(getFullName());
+            simtime_t d = isVip ? fastResponseDelay : normalResponseDelay;
+            sendDelayed(rep, d, "ppp$o");
+            repliesSent++;
+        }
+        delete msg;
+    }
+
+    void sendSync() {
+        if (!gate("syncOut")->isConnected()) return;
+
+        auto *sync = new cMessage("DHCP_SYNC", DHCP_SYNC);
+        sync->addPar("pcNext").setLongValue(nextIdForPool[pcPrefix]);
+        sync->addPar("mobileNext").setLongValue(nextIdForPool[mobilePrefix]);
+        sync->addPar("printerNext").setLongValue(nextIdForPool[printerPrefix]);
+        sync->addPar("vipNext").setLongValue(nextIdForPool[vipPrefix]);
+        sync->addPar("isActive").setBoolValue(isActive);
+
+        std::stringstream leaseData;
+        for (const auto& entry : addrTable) {
+            leaseData << entry.first << ":" << entry.second << ";";
+        }
+        sync->addPar("leases").setStringValue(leaseData.str().c_str());
+
+        send(sync, "syncOut");
+    }
+
+    void receiveSync(cMessage *msg) {
+        uint64_t pcNext = msg->par("pcNext").longValue();
+        uint64_t mobNext = msg->par("mobileNext").longValue();
+        uint64_t prnNext = msg->par("printerNext").longValue();
+        uint64_t vipNext = msg->par("vipNext").longValue();
+
+        if (pcNext > nextIdForPool[pcPrefix])
+            nextIdForPool[pcPrefix] = pcNext;
+        if (mobNext > nextIdForPool[mobilePrefix])
+            nextIdForPool[mobilePrefix] = mobNext;
+        if (prnNext > nextIdForPool[printerPrefix])
+            nextIdForPool[printerPrefix] = prnNext;
+        if (vipNext > nextIdForPool[vipPrefix])
+            nextIdForPool[vipPrefix] = vipNext;
+
+        if (msg->hasPar("leases")) {
+            string leaseStr = msg->par("leases").stringValue();
+            if (!leaseStr.empty()) {
+                std::stringstream ss(leaseStr);
+                string entry;
+                while (std::getline(ss, entry, ';')) {
+                    if (entry.empty()) continue;
+                    size_t colon = entry.find(':');
+                    if (colon != string::npos) {
+                        long devId = std::stol(entry.substr(0, colon));
+                        string addr = entry.substr(colon + 1);
+                        addrTable[devId] = addr;
+                    }
                 }
-            }
-            else if (msg->getKind() == DHCPV6_REQUEST || msg->getKind() == DHCPV6_RENEW) {
-                if (msg->getKind() == DHCPV6_REQUEST) {
-                    requestCount++;
-                    emit(requestSignal, 1L);
-                } else {
-                    renewCount++;
-                }
-
-                PendingRequest req;
-                req.msg = msg;
-                req.gateIndex = inIx;
-                req.priority = prio;
-                req.arrivalTime = simTime();
-                requestQueue.push(req);
-
-                if (!processingRequest) {
-                    processNextRequest();
-                }
-            }
-            else {
-                EV_WARN << "Unexpected message kind=" << msg->getKind() << "\n";
-                delete msg;
             }
         }
     }
 
-    void processNextSolicit() {
-        if (solicitQueue.empty()) {
-            return;
-        }
+    void sendHeartbeat() {
+        if (!gate("syncOut")->isConnected()) return;
+        auto *hb = new cMessage("DHCP_HEARTBEAT", DHCP_HEARTBEAT);
+        send(hb, "syncOut");
+    }
 
-        PendingRequest req = solicitQueue.top();
-        solicitQueue.pop();
+    void checkPartnerStatus() {
+        simtime_t elapsed = simTime() - lastPartnerHeartbeat;
 
-        cMessage *msg = req.msg;
-        int inIx = req.gateIndex;
+        if (elapsed > failoverTimeout && partnerAlive) {
+            EV << "WARN: [" << simTime() << "] " << getFullName()
+               << " PARTNER FAILURE DETECTED! Taking over as active server...\n";
+            partnerAlive = false;
 
-        long dev = SRC(msg);
-        string devType = (msg->hasPar("type") ? msg->par("type").stringValue() : "pc");
-        int prio = (msg->hasPar("priority") ? (int)msg->par("priority").longValue() : 1);
-
-        bool isVip = isVipClient(devType, prio);
-        string prefix = pickPrefix(devType, prio);
-        string offer  = makeAddress(prefix, nextIdForPool[prefix]);
-        double lease = isVip ? vipLeaseTime : normalLeaseTime;
-
-        nextIdForPool[prefix]++;
-
-        advertiseCount++;
-        emit(advertiseSignal, 1L);
-
-        EV_INFO << "[" << simTime() << "] SOLICIT from devId=" << dev
-                << " type=" << devType << " prio=" << prio
-                << " -> ADVERTISE " << offer
-                << (isVip ? " (VIP)" : " (normal)")
-                << " lease=" << lease << "s\n";
-
-        auto *adv = mk("DHCPV6_ADVERTISE", DHCPV6_ADVERTISE, 0, dev);
-        adv->addPar("ip6").setStringValue(offer.c_str());
-        adv->addPar("priority").setLongValue(prio);
-        adv->addPar("leaseTime").setDoubleValue(lease);
-        simtime_t d = isVip ? fastResponseDelay : normalResponseDelay;
-        sendDelayed(adv, d, "pppg$o", inIx);
-
-        // Track response time
-        simtime_t respTime = simTime() - req.arrivalTime + d;
-        totalResponseTime += respTime;
-        responseCount++;
-        emit(responseTimeSignal, respTime);
-
-        delete msg;
-
-        if (!solicitQueue.empty()) {
-            processingSolicit = true;
-            scheduleAt(simTime() + 0.00001, processSolicitEvent);
+            if (!isActive) {
+                isActive = true;
+                EV << "INFO: [" << simTime() << "] " << getFullName()
+                   << " now ACTIVE (failover complete)\n";
+            }
         }
     }
 
-    void processNextRequest() {
-        if (requestQueue.empty()) {
-            return;
-        }
+    void simulateFailure() {
+        EV << "WARN: [" << simTime() << "] *** " << getFullName()
+           << " SIMULATING SERVER FAILURE ***\n";
+        hasFailed = true;
+        isActive = false;
 
-        PendingRequest req = requestQueue.top();
-        requestQueue.pop();
-
-        cMessage *msg = req.msg;
-        int inIx = req.gateIndex;
-
-        long dev = SRC(msg);
-        string ip6 = msg->par("ip6").stringValue();
-        int prio = (msg->hasPar("priority") ? (int)msg->par("priority").longValue() : 1);
-
-        addrTable[dev] = ip6;
-
-        string vipBase = vipPrefix.substr(0, vipPrefix.find('/'));
-        bool isVip = (ip6.find(vipBase) == 0);
-        double lease = isVip ? vipLeaseTime : normalLeaseTime;
-
-        replyCount++;
-        emit(replySignal, 1L);
-
-        string msgType = (msg->getKind() == DHCPV6_RENEW) ? "RENEW" : "REQUEST";
-        EV_INFO << "[" << simTime() << "] " << msgType << " from devId=" << dev
-                << " prio=" << prio << " for " << ip6
-                << " -> REPLY " << (isVip ? "(VIP)" : "(normal)")
-                << " lease=" << lease << "s\n";
-
-        auto *rep = mk("DHCPV6_REPLY", DHCPV6_REPLY, 0, dev);
-        rep->addPar("ip6").setStringValue(ip6.c_str());
-        rep->addPar("leaseTime").setDoubleValue(lease);
-        simtime_t d = isVip ? fastResponseDelay : normalResponseDelay;
-        sendDelayed(rep, d, "pppg$o", inIx);
-
-        delete msg;
-
-        if (!requestQueue.empty()) {
-            processingRequest = true;
-            scheduleAt(simTime() + 0.00001, processRequestEvent);
-        }
+        cancelEvent(syncTimer);
+        cancelEvent(heartbeatTimer);
+        cancelEvent(checkPartnerTimer);
     }
 
     bool isVipClient(const string& type, int prio) const {
@@ -282,54 +337,50 @@ class DHCP : public cSimpleModule {
         return pref + std::to_string(counter);
     }
 
+    string poolKeyFrom(const string& ip6) const {
+        auto hasPref = [&](const string& pfx) -> bool {
+            auto slash = pfx.find('/');
+            string base = (slash==string::npos) ? pfx : pfx.substr(0, slash);
+            return ip6.rfind(base, 0) == 0;
+        };
+        if (hasPref(vipPrefix))     return vipPrefix;
+        if (hasPref(pcPrefix))      return pcPrefix;
+        if (hasPref(mobilePrefix))  return mobilePrefix;
+        if (hasPref(printerPrefix)) return printerPrefix;
+        return string();
+    }
+
     virtual void finish() override {
-        if (processSolicitEvent) {
-            if (processSolicitEvent->isScheduled())
-                cancelEvent(processSolicitEvent);
-            delete processSolicitEvent;
-            processSolicitEvent = nullptr;
-        }
+        if (syncTimer) cancelAndDelete(syncTimer);
+        if (heartbeatTimer) cancelAndDelete(heartbeatTimer);
+        if (checkPartnerTimer) cancelAndDelete(checkPartnerTimer);
+        if (failureEvent && failureEvent->isScheduled())
+            cancelAndDelete(failureEvent);
 
-        if (processRequestEvent) {
-            if (processRequestEvent->isScheduled())
-                cancelEvent(processRequestEvent);
-            delete processRequestEvent;
-            processRequestEvent = nullptr;
-        }
+        EV << "\n";
+        EV << "========================================\n";
+        EV << "DHCP SERVER STATISTICS: " << getFullName() << "\n";
+        EV << "========================================\n";
+        EV << "Status           : " << (isActive ? "ACTIVE" : "STANDBY") << "\n";
+        EV << "Failed           : " << (hasFailed ? "YES" : "NO") << "\n";
+        EV << "Partner Status   : " << (partnerAlive ? "ALIVE" : "DOWN") << "\n";
+        EV << "----------------------------------------\n";
+        EV << "SOLICIT received : " << solicitsReceived << "\n";
+        EV << "ADVERTISE sent   : " << advertiseSent << "\n";
+        EV << "REQUEST received : " << requestsReceived << "\n";
+        EV << "REPLY sent       : " << repliesSent << "\n";
+        EV << "Total Leases     : " << addrTable.size() << "\n";
+        EV << "========================================\n";
 
-        while (!solicitQueue.empty()) {
-            delete solicitQueue.top().msg;
-            solicitQueue.pop();
+        // Show assigned IPs
+        if (!addrTable.empty()) {
+            EV << "ASSIGNED IP ADDRESSES:\n";
+            for (const auto& entry : addrTable) {
+                EV << "  DeviceID " << entry.first << " -> " << entry.second << "\n";
+            }
+            EV << "========================================\n";
         }
-        while (!requestQueue.empty()) {
-            delete requestQueue.top().msg;
-            requestQueue.pop();
-        }
-
-        // Print statistics
-        EV_INFO << "\n=== DHCPv6 Server Statistics ===\n";
-        EV_INFO << "SOLICIT messages received: " << solicitCount << "\n";
-        EV_INFO << "ADVERTISE messages sent: " << advertiseCount << "\n";
-        EV_INFO << "REQUEST messages received: " << requestCount << "\n";
-        EV_INFO << "RENEW messages received: " << renewCount << "\n";
-        EV_INFO << "REPLY messages sent: " << replyCount << "\n";
-        EV_INFO << "Total messages processed: " << (solicitCount + requestCount + renewCount) << "\n";
-        if (responseCount > 0) {
-            EV_INFO << "Average response time: " << (totalResponseTime / responseCount) << "s\n";
-        }
-        EV_INFO << "Active leases: " << addrTable.size() << "\n";
-        EV_INFO << "================================\n";
-
-        // Record statistics
-        recordScalar("solicitCount", solicitCount);
-        recordScalar("advertiseCount", advertiseCount);
-        recordScalar("requestCount", requestCount);
-        recordScalar("renewCount", renewCount);
-        recordScalar("replyCount", replyCount);
-        recordScalar("activeLeases", (long)addrTable.size());
-        if (responseCount > 0) {
-            recordScalar("avgResponseTime", totalResponseTime / responseCount);
-        }
+        EV << "\n";
     }
 };
 

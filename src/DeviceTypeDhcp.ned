@@ -2,8 +2,16 @@ package prioritydhcp;
 
 channel P2P extends ned.DatarateChannel
 {
-    datarate = 100Mbps;
-    delay = 0.2ms;
+    datarate = 1Gbps;
+    delay = 0.1ms;
+}
+
+simple Switch
+{
+    parameters:
+        @display("i=block/switch");
+    gates:
+        inout port[];
 }
 
 simple DHCP
@@ -14,17 +22,21 @@ simple DHCP
         string printerPrefix  = default("2001:db8:prn::/64");
         string vipPrefix      = default("2001:db8:vip::/64");
 
-        double fastResponseDelay   @unit(s) = default(0.05s);
-        double normalResponseDelay @unit(s) = default(uniform(0.1s,0.3s));
+        double fastResponseDelay   @unit(s) = default(0.01s);
+        double normalResponseDelay @unit(s) = default(0.02s);
         int    vipPriorityCutoff   = default(9);
 
-        // NEW: Lease time parameters
-        double vipLeaseTime    @unit(s) = default(60s);
-        double normalLeaseTime @unit(s) = default(30s);
+        bool   isPrimary = default(true);
+        string partnerName = default("");
+        double syncInterval @unit(s) = default(0.5s);
+        double failoverTimeout @unit(s) = default(1.5s);
+        double failureTime @unit(s) = default(-1s);
 
         @display("i=block/process");
     gates:
-        inout pppg[];
+        inout ppp;
+        output syncOut;
+        input syncIn;
 }
 
 simple Device
@@ -33,7 +45,7 @@ simple Device
         string type;
         string name;
         int    priority = default(1);
-        double startJitter @unit(s) = default(uniform(0.1s, 0.5s));
+        double startJitter @unit(s) = default(uniform(0.01s, 0.05s));
         @display("i=device/laptop");
     gates:
         inout ppp;
@@ -44,10 +56,22 @@ network DeviceTypeDhcpNet
     @display("bgb=760,460");
 
     submodules:
-        dhcp: DHCP {
-            @display("p=520,230;i=block/process");
-            gates:
-                pppg[5];
+        switch: Switch {
+            @display("p=320,230;i=block/switch");
+        }
+
+        dhcp_main: DHCP {
+            parameters:
+                isPrimary = true;
+                partnerName = "dhcp_backup";
+                @display("p=520,150;i=block/process");
+        }
+
+        dhcp_backup: DHCP {
+            parameters:
+                isPrimary = false;
+                partnerName = "dhcp_main";
+                @display("p=520,310;i=block/process");
         }
 
         server1: Device {
@@ -86,10 +110,16 @@ network DeviceTypeDhcpNet
                 @display("p=160,400;i=device/printer");
         }
 
-    connections allowunconnected:
-        server1.ppp   <--> P2P <--> dhcp.pppg[0];
-        router1.ppp   <--> P2P <--> dhcp.pppg[1];
-        pc1.ppp       <--> P2P <--> dhcp.pppg[2];
-        mobile1.ppp   <--> P2P <--> dhcp.pppg[3];
-        printer1.ppp  <--> P2P <--> dhcp.pppg[4];
+    connections:
+        server1.ppp <--> P2P <--> switch.port++;
+        router1.ppp <--> P2P <--> switch.port++;
+        pc1.ppp <--> P2P <--> switch.port++;
+        mobile1.ppp <--> P2P <--> switch.port++;
+        printer1.ppp <--> P2P <--> switch.port++;
+
+        dhcp_main.ppp <--> P2P <--> switch.port++;
+        dhcp_backup.ppp <--> P2P <--> switch.port++;
+
+        dhcp_main.syncOut --> P2P --> dhcp_backup.syncIn;
+        dhcp_backup.syncOut --> P2P --> dhcp_main.syncIn;
 }
