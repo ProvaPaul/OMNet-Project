@@ -319,9 +319,12 @@ class DHCP : public cSimpleModule {
         hasFailed = true;
         isActive = false;
 
-        cancelEvent(syncTimer);
-        cancelEvent(heartbeatTimer);
-        cancelEvent(checkPartnerTimer);
+        if (syncTimer && syncTimer->isScheduled())
+            cancelEvent(syncTimer);
+        if (heartbeatTimer && heartbeatTimer->isScheduled())
+            cancelEvent(heartbeatTimer);
+        if (checkPartnerTimer && checkPartnerTimer->isScheduled())
+            cancelEvent(checkPartnerTimer);
     }
 
     bool isVipClient(const string& type, int prio) const {
@@ -362,11 +365,24 @@ class DHCP : public cSimpleModule {
     }
 
     virtual void finish() override {
-        if (syncTimer) cancelAndDelete(syncTimer);
-        if (heartbeatTimer) cancelAndDelete(heartbeatTimer);
-        if (checkPartnerTimer) cancelAndDelete(checkPartnerTimer);
-        if (failureEvent && failureEvent->isScheduled())
-            cancelAndDelete(failureEvent);
+        if (syncTimer) {
+            cancelAndDelete(syncTimer);
+            syncTimer = nullptr;
+        }
+        if (heartbeatTimer) {
+            cancelAndDelete(heartbeatTimer);
+            heartbeatTimer = nullptr;
+        }
+        if (checkPartnerTimer) {
+            cancelAndDelete(checkPartnerTimer);
+            checkPartnerTimer = nullptr;
+        }
+        if (failureEvent) {
+            if (failureEvent->isScheduled())
+                cancelEvent(failureEvent);
+            delete failureEvent;
+            failureEvent = nullptr;
+        }
 
         EV << "\n";
         EV << "========================================\n";

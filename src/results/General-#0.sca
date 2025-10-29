@@ -1,8 +1,8 @@
 version 3
-run General-0-20251025-21:20:36-3220
+run General-0-20251029-19:56:30-5576
 attr configname General
-attr datetime 20251025-21:20:36
-attr datetimef 20251025-212036
+attr datetime 20251029-19:56:30
+attr datetimef 20251029-195630
 attr experiment General
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network prioritydhcp.DeviceTypeDhcpNet
-attr processid 3220
+attr processid 5576
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -35,7 +35,7 @@ config **.router1.startJitter 0s
 config **.pc1.startJitter 0s
 config **.mobile1.startJitter 0s
 config **.printer1.startJitter 0s
-config **.pc2.startJitter 8.0s
+config **.pc2.startJitter 8s
 
 par DeviceTypeDhcpNet.server1.ppp$o.channel typename "\"prioritydhcp.P2P\""
 par DeviceTypeDhcpNet.server1.ppp$o.channel disabled false
@@ -232,4 +232,117 @@ par DeviceTypeDhcpNet.dhcp_backup.ppp$o.channel ber 0
 attr mutable ""
 par DeviceTypeDhcpNet.dhcp_backup.ppp$o.channel per 0
 attr mutable ""
-p
+par DeviceTypeDhcpNet.switch.port$o[7].channel typename "\"prioritydhcp.P2P\""
+par DeviceTypeDhcpNet.switch.port$o[7].channel disabled false
+attr mutable ""
+par DeviceTypeDhcpNet.switch.port$o[7].channel delay 0.0001s
+attr mutable ""
+attr unit s
+par DeviceTypeDhcpNet.switch.port$o[7].channel datarate 1e+09bps
+attr mutable ""
+attr unit bps
+par DeviceTypeDhcpNet.switch.port$o[7].channel ber 0
+attr mutable ""
+par DeviceTypeDhcpNet.switch.port$o[7].channel per 0
+attr mutable ""
+par DeviceTypeDhcpNet.dhcp_main.syncOut.channel typename "\"prioritydhcp.P2P\""
+par DeviceTypeDhcpNet.dhcp_main.syncOut.channel disabled false
+attr mutable ""
+par DeviceTypeDhcpNet.dhcp_main.syncOut.channel delay 0.0001s
+attr mutable ""
+attr unit s
+par DeviceTypeDhcpNet.dhcp_main.syncOut.channel datarate 1e+09bps
+attr mutable ""
+attr unit bps
+par DeviceTypeDhcpNet.dhcp_main.syncOut.channel ber 0
+attr mutable ""
+par DeviceTypeDhcpNet.dhcp_main.syncOut.channel per 0
+attr mutable ""
+par DeviceTypeDhcpNet.dhcp_backup.syncOut.channel typename "\"prioritydhcp.P2P\""
+par DeviceTypeDhcpNet.dhcp_backup.syncOut.channel disabled false
+attr mutable ""
+par DeviceTypeDhcpNet.dhcp_backup.syncOut.channel delay 0.0001s
+attr mutable ""
+attr unit s
+par DeviceTypeDhcpNet.dhcp_backup.syncOut.channel datarate 1e+09bps
+attr mutable ""
+attr unit bps
+par DeviceTypeDhcpNet.dhcp_backup.syncOut.channel ber 0
+attr mutable ""
+par DeviceTypeDhcpNet.dhcp_backup.syncOut.channel per 0
+attr mutable ""
+par DeviceTypeDhcpNet.switch typename "\"prioritydhcp.Switch\""
+par DeviceTypeDhcpNet.dhcp_main typename "\"prioritydhcp.DHCP\""
+par DeviceTypeDhcpNet.dhcp_main pcPrefix "\"2001:db8:pc::/64\""
+par DeviceTypeDhcpNet.dhcp_main mobilePrefix "\"2001:db8:mob::/64\""
+par DeviceTypeDhcpNet.dhcp_main printerPrefix "\"2001:db8:prn::/64\""
+par DeviceTypeDhcpNet.dhcp_main vipPrefix "\"2001:db8:vip::/64\""
+par DeviceTypeDhcpNet.dhcp_main fastResponseDelay 0.01s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_main normalResponseDelay 0.02s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_main vipPriorityCutoff 9
+par DeviceTypeDhcpNet.dhcp_main isPrimary true
+par DeviceTypeDhcpNet.dhcp_main partnerName "\"dhcp_backup\""
+par DeviceTypeDhcpNet.dhcp_main syncInterval 0.5s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_main failoverTimeout 1.5s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_main failureTime 5s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_backup typename "\"prioritydhcp.DHCP\""
+par DeviceTypeDhcpNet.dhcp_backup pcPrefix "\"2001:db8:pc::/64\""
+par DeviceTypeDhcpNet.dhcp_backup mobilePrefix "\"2001:db8:mob::/64\""
+par DeviceTypeDhcpNet.dhcp_backup printerPrefix "\"2001:db8:prn::/64\""
+par DeviceTypeDhcpNet.dhcp_backup vipPrefix "\"2001:db8:vip::/64\""
+par DeviceTypeDhcpNet.dhcp_backup fastResponseDelay 0.01s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_backup normalResponseDelay 0.02s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_backup vipPriorityCutoff 9
+par DeviceTypeDhcpNet.dhcp_backup isPrimary false
+par DeviceTypeDhcpNet.dhcp_backup partnerName "\"dhcp_main\""
+par DeviceTypeDhcpNet.dhcp_backup syncInterval 0.5s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_backup failoverTimeout 1.5s
+attr unit s
+par DeviceTypeDhcpNet.dhcp_backup failureTime -1s
+attr unit s
+par DeviceTypeDhcpNet.server1 typename "\"prioritydhcp.Device\""
+par DeviceTypeDhcpNet.server1 type "\"server\""
+par DeviceTypeDhcpNet.server1 name "\"Server_1\""
+par DeviceTypeDhcpNet.server1 priority 10
+par DeviceTypeDhcpNet.server1 startJitter 0s
+attr unit s
+par DeviceTypeDhcpNet.router1 typename "\"prioritydhcp.Device\""
+par DeviceTypeDhcpNet.router1 type "\"router\""
+par DeviceTypeDhcpNet.router1 name "\"Router_1\""
+par DeviceTypeDhcpNet.router1 priority 9
+par DeviceTypeDhcpNet.router1 startJitter 0s
+attr unit s
+par DeviceTypeDhcpNet.pc1 typename "\"prioritydhcp.Device\""
+par DeviceTypeDhcpNet.pc1 type "\"pc\""
+par DeviceTypeDhcpNet.pc1 name "\"PC_1\""
+par DeviceTypeDhcpNet.pc1 priority 3
+par DeviceTypeDhcpNet.pc1 startJitter 0s
+attr unit s
+par DeviceTypeDhcpNet.mobile1 typename "\"prioritydhcp.Device\""
+par DeviceTypeDhcpNet.mobile1 type "\"mobile\""
+par DeviceTypeDhcpNet.mobile1 name "\"Mobile_1\""
+par DeviceTypeDhcpNet.mobile1 priority 2
+par DeviceTypeDhcpNet.mobile1 startJitter 0s
+attr unit s
+par DeviceTypeDhcpNet.printer1 typename "\"prioritydhcp.Device\""
+par DeviceTypeDhcpNet.printer1 type "\"printer\""
+par DeviceTypeDhcpNet.printer1 name "\"Printer_1\""
+par DeviceTypeDhcpNet.printer1 priority 1
+par DeviceTypeDhcpNet.printer1 startJitter 0s
+attr unit s
+par DeviceTypeDhcpNet.pc2 typename "\"prioritydhcp.Device\""
+par DeviceTypeDhcpNet.pc2 type "\"pc\""
+par DeviceTypeDhcpNet.pc2 name "\"PC_2_Failover\""
+par DeviceTypeDhcpNet.pc2 priority 4
+par DeviceTypeDhcpNet.pc2 startJitter 8s
+attr unit s
+par DeviceTypeDhcpNet typename "\"prioritydhcp.DeviceTypeDhcpNet\""
+
