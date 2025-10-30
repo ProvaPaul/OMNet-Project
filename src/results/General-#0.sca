@@ -1,8 +1,8 @@
 version 3
-run General-0-20251029-19:56:30-5576
+run General-0-20251030-07:35:14-14332
 attr configname General
-attr datetime 20251029-19:56:30
-attr datetimef 20251029-195630
+attr datetime 20251030-07:35:14
+attr datetimef 20251030-073514
 attr experiment General
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network prioritydhcp.DeviceTypeDhcpNet
-attr processid 5576
+attr processid 14332
 attr repetition 0
 attr replication #0
 attr resultdir results
