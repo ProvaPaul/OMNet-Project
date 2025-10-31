@@ -15,7 +15,7 @@ A comprehensive **network simulation** demonstrating **DHCPv6** with **priority-
 
 Below is the sequence diagram showing the message flow between the DHCPv6 servers and clients:
 
-<img src="sequence_diagram.png" alt="Sequence Diagram" width="600"/>
+<img src="sequence_diagram.png" alt="Sequence Diagram" width="600" height="400"/>
 
 > 🖼️ Replace the image path above with your actual file location.
 
