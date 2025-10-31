@@ -15,9 +15,9 @@ A comprehensive **network simulation** demonstrating **DHCPv6** with **priority-
 
 Below is the sequence diagram showing the message flow between the DHCPv6 servers and clients:
 
-![Sequence Diagram](sequence_diagram.png)
+<img src="sequence_diagram.png" alt="Sequence Diagram" width="600"/>
 
-> 🖼️ Replace the image path above with your actual file location (e.g., `assets/sequence_diagram.png`).
+> 🖼️ Replace the image path above with your actual file location.
 
 ---
 
@@ -44,10 +44,7 @@ This project simulates an advanced **Dynamic Host Configuration Protocol for IPv
 
 ## 🧩 System Architecture
 
-```
-![System architecture](architecture.png)
-
-```
+<img src="architecture.png" alt="System Architecture" width="500"/>
 
 ---
 
